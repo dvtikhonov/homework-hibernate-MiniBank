@@ -1,0 +1,151 @@
+package tikhonov.dev.account;
+
+import org.hibernate.SessionFactory;
+import org.springframework.stereotype.Service;
+
+
+/**
+ * Операции со счетами через current session. Вложенный вызов присоединяется к уже открытой транзакции.
+ */
+@Service
+public class AccountService {
+
+    private final SessionFactory sessionFactory;
+    private final AccountProperties accountProperties;
+
+    /**
+     * @param sessionFactory    фабрика сессий
+     * @param accountProperties начальный баланс и комиссия
+     */
+    public AccountService(
+            SessionFactory sessionFactory,
+            AccountProperties accountProperties
+    ) {
+        this.sessionFactory = sessionFactory;
+        this.accountProperties = accountProperties;
+    }
+
+    /**
+     * Открывает счет с балансом из настроек и добавляет его пользователю.
+     * Если транзакцию уже открыл {@code UserService.createUser}, присоединяется к ней.
+     *
+     * @param userId идентификатор владельца
+     * @return новый счет
+     */
+    public Account createAccount(long userId) {
+        requirePositiveId(userId, "user id");
+
+        return new Account(); // заглушка
+
+
+    }
+
+    /**
+     * @param accountId счет
+     * @param amount    положительная сумма пополнения
+     * @return баланс после пополнения
+     */
+    public int deposit(long accountId, int amount) {
+        requirePositiveId(accountId, "account id");
+        requirePositiveAmount(amount);
+        return 771; // заглушка
+    }
+
+    /**
+     * @param accountId счет
+     * @param amount    положительная сумма снятия
+     * @return баланс после снятия
+     */
+    public int withdraw(long accountId, int amount) {
+        requirePositiveId(accountId, "account id");
+        requirePositiveAmount(amount);
+
+        return 7711;
+    }
+
+    /**
+     * Переводит сумму. Между разными пользователями получатель получает сумму за вычетом комиссии.
+     * Оба баланса вычисляются до изменения счетов. Владельцы сравниваются по id.
+     *
+     * @param fromAccountId счет отправителя
+     * @param toAccountId   счет получателя
+     * @param amount        списываемая сумма
+     * @return результат перевода
+     */
+    public TransferResult transfer(long fromAccountId, long toAccountId, int amount) {
+        requirePositiveId(fromAccountId, "account id");
+        requirePositiveId(toAccountId, "account id");
+        requirePositiveAmount(amount);
+        if (fromAccountId == toAccountId) {
+            throw new IllegalArgumentException("source and target account id must be different");
+        }
+
+        return new TransferResult(
+                7,
+                7,
+                amount,
+                amount - 7,
+                7,
+                true
+        );
+
+    }
+
+    /**
+     * Закрывает счет и переносит остаток без комиссии на счет этого пользователя с наименьшим id.
+     * Единственный счет пользователя закрыть нельзя.
+     *
+     * @param accountId закрываемый счет
+     * @return куда и сколько перенесено
+     */
+    public CloseAccountResult close(long accountId) {
+        requirePositiveId(accountId, "account id");
+
+        return new CloseAccountResult(777, 7, 7778); // заглушка
+    }
+
+    private Account requireAccount(long accountId) {
+        Account account = sessionFactory.getCurrentSession().find(Account.class, accountId);
+        if (account == null) {
+            throw new IllegalArgumentException("No such account: id=%d".formatted(accountId));
+        }
+        return account;
+    }
+
+    private static void requirePositiveId(long id, String name) {
+        if (id <= 0) {
+            throw new IllegalArgumentException(name + " must be > 0");
+        }
+    }
+
+    private static void requirePositiveAmount(int amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("amount must be > 0");
+        }
+    }
+
+    private int amountAfterCommission(int amount) {
+        double received = amount * (1.0d - accountProperties.getTransferCommission());
+        long rounded = Math.round(received);
+        if (rounded < 0 || rounded > amount) {
+            throw new IllegalArgumentException("calculated transfer amount is out of range");
+        }
+        return (int) rounded;
+    }
+
+    private static int add(int balance, int amount, long accountId) {
+        try {
+            return Math.addExact(balance, amount);
+        } catch (ArithmeticException ex) {
+            throw new IllegalArgumentException("balance overflow on account id=%d".formatted(accountId));
+        }
+    }
+
+    private static int subtract(int balance, int amount, long accountId) {
+        try {
+            return Math.subtractExact(balance, amount);
+        } catch (ArithmeticException ex) {
+            throw new IllegalArgumentException("balance overflow on account id=%d".formatted(accountId));
+        }
+    }
+}
