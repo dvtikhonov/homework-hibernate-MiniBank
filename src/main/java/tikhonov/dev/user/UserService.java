@@ -6,7 +6,6 @@ import org.hibernate.Session;
 import org.springframework.stereotype.Service;
 import tikhonov.dev.config.TransactionRunner;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**

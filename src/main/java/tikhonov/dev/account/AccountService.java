@@ -6,6 +6,8 @@ import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 
 /**
  * Операции со счетами через current session. Вложенный вызов присоединяется к уже открытой транзакции.
@@ -67,7 +69,12 @@ public class AccountService {
     public int deposit(long accountId, int amount) {
         requirePositiveId(accountId, "account id");
         requirePositiveAmount(amount);
-        return 771; // заглушка
+        return transactions.execute(() -> {
+            Account account = requireAccount(accountId);
+            int updated = add(account.getMoneyAmount(), amount, account.getId());
+            account.setMoneyAmount(updated);
+            return updated;
+        });
     }
 
     /**
@@ -78,8 +85,17 @@ public class AccountService {
     public int withdraw(long accountId, int amount) {
         requirePositiveId(accountId, "account id");
         requirePositiveAmount(amount);
-
-        return 7711;
+        return transactions.execute(() -> {
+            Account account = requireAccount(accountId);
+            if (amount > account.getMoneyAmount()) {
+                throw new IllegalArgumentException(
+                        "insufficient funds on account id=%d, moneyAmount=%d, attempted withdraw=%d"
+                                .formatted(account.getId(), account.getMoneyAmount(), amount));
+            }
+            int updated = subtract(account.getMoneyAmount(), amount, account.getId());
+            account.setMoneyAmount(updated);
+            return updated;
+        });
     }
 
     /**
@@ -99,15 +115,29 @@ public class AccountService {
             throw new IllegalArgumentException("source and target account id must be different");
         }
 
-        return new TransferResult(
-                7,
-                7,
-                amount,
-                amount - 7,
-                7,
-                true
-        );
-
+        return transactions.execute(() -> {
+            Account source = requireAccount(fromAccountId);
+            Account target = requireAccount(toAccountId);
+            if (amount > source.getMoneyAmount()) {
+                throw new IllegalArgumentException(
+                        "Not enough money to transfer from account: id=%d, moneyAmount=%d, attemptedTransfer=%d"
+                                .formatted(source.getId(), source.getMoneyAmount(), amount));
+            }
+            boolean sameUser = source.getUser().getId().equals(target.getUser().getId());
+            int received = sameUser ? amount : amountAfterCommission(amount);
+            int sourceAfter = subtract(source.getMoneyAmount(), amount, source.getId());
+            int targetAfter = add(target.getMoneyAmount(), received, target.getId());
+            source.setMoneyAmount(sourceAfter);
+            target.setMoneyAmount(targetAfter);
+            return new TransferResult(
+                    source.getId(),
+                    target.getId(),
+                    amount,
+                    amount - received,
+                    received,
+                    sameUser
+            );
+        });
     }
 
     /**
@@ -120,7 +150,37 @@ public class AccountService {
     public CloseAccountResult close(long accountId) {
         requirePositiveId(accountId, "account id");
 
-        return new CloseAccountResult(777, 7, 7778); // заглушка
+        return transactions.execute(() -> {
+            Session session = sessionFactory.getCurrentSession();
+            Account account = requireAccount(accountId);
+            User user = account.getUser();
+            List<Account> accounts = user.getAccountList();
+            if (accounts.size() <= 1) {
+                throw new IllegalArgumentException(
+                        "cannot close the only account of user id=%d".formatted(user.getId()));
+            }
+            Account target = null;
+            for (Account candidate : accounts) {
+                if (candidate.getId().equals(account.getId())) {
+                    continue;
+                }
+                if (target == null || candidate.getId().compareTo(target.getId()) < 0) {
+                    target = candidate;
+                }
+            }
+            if (target == null) {
+                throw new IllegalArgumentException(
+                        "cannot close the only account of user id=%d".formatted(user.getId()));
+            }
+            int remainder = account.getMoneyAmount();
+            target.setMoneyAmount(add(target.getMoneyAmount(), remainder, target.getId()));
+            accounts.removeIf(item -> item.getId().equals(account.getId()));
+            session.remove(account);
+            return new CloseAccountResult(
+                    account.getId().intValue(),
+                    target.getId().intValue(),
+                    remainder);
+        });
     }
 
     private Account requireAccount(long accountId) {

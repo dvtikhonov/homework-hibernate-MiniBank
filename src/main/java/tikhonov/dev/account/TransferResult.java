@@ -11,8 +11,8 @@ package tikhonov.dev.account;
  * @param sameUser        перевод между счетами одного пользователя
  */
 public record TransferResult(
-        int sourceAccountId,
-        int targetAccountId,
+        long sourceAccountId,
+        long targetAccountId,
         int amount,
         int commission,
         int received,
