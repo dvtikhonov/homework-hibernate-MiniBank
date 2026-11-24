@@ -1,5 +1,8 @@
 package tikhonov.dev.account;
 
+import tikhonov.dev.config.TransactionRunner;
+import tikhonov.dev.user.User;
+import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.springframework.stereotype.Service;
 
@@ -11,6 +14,7 @@ import org.springframework.stereotype.Service;
 public class AccountService {
 
     private final SessionFactory sessionFactory;
+    private final TransactionRunner transactions;
     private final AccountProperties accountProperties;
 
     /**
@@ -19,9 +23,11 @@ public class AccountService {
      */
     public AccountService(
             SessionFactory sessionFactory,
+            TransactionRunner transactions,
             AccountProperties accountProperties
     ) {
         this.sessionFactory = sessionFactory;
+        this.transactions = transactions;
         this.accountProperties = accountProperties;
     }
 
@@ -35,7 +41,20 @@ public class AccountService {
     public Account createAccount(long userId) {
         requirePositiveId(userId, "user id");
 
-        return new Account(); // заглушка
+        return transactions.execute(() -> {
+            Session session = sessionFactory.getCurrentSession();
+            User user = session.find(User.class, userId);
+            if (user == null) {
+                throw new IllegalArgumentException("No such user: id=%d".formatted(userId));
+            }
+            Account account = new Account();
+            account.setUser(user);
+            account.setMoneyAmount(accountProperties.getDefaultAmount());
+            session.persist(account);
+            user.getAccountList().add(account);
+            session.flush();
+            return account;
+        });
 
 
     }

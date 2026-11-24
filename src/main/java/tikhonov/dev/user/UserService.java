@@ -2,7 +2,9 @@ package tikhonov.dev.user;
 
 import tikhonov.dev.account.AccountService;
 import org.hibernate.SessionFactory;
+import org.hibernate.Session;
 import org.springframework.stereotype.Service;
+import tikhonov.dev.config.TransactionRunner;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +17,7 @@ public class UserService {
 
     private final SessionFactory sessionFactory;
     private final AccountService accountService;
+    private final TransactionRunner transactions;
 
     /**
      * @param sessionFactory фабрика сессий
@@ -22,10 +25,12 @@ public class UserService {
      */
     public UserService(
             SessionFactory sessionFactory,
-            AccountService accountService
+            AccountService accountService,
+            TransactionRunner transactions
     ) {
         this.sessionFactory = sessionFactory;
         this.accountService = accountService;
+        this.transactions = transactions;
     }
 
     /**
@@ -44,8 +49,23 @@ public class UserService {
             throw new IllegalArgumentException("login must not be empty");
         }
 
-        return new User(); // stub заглушка
-
+        return transactions.execute(() -> {
+            Session session = sessionFactory.getCurrentSession();
+            Long existing = session.createQuery(
+                            "select count(u) from User u where u.login = :login", Long.class)
+                    .setParameter("login", normalizedLogin)
+                    .getSingleResult();
+            if (existing != null && existing > 0) {
+                throw new IllegalArgumentException(
+                        "user with login '%s' already exists".formatted(normalizedLogin));
+            }
+            User user = new User();
+            user.setLogin(normalizedLogin);
+            session.persist(user);
+            session.flush();
+            accountService.createAccount(user.getId());
+            return user;
+        });
     }
 
     /**
@@ -54,16 +74,22 @@ public class UserService {
      */
     public User findUserById(long id) {
         requirePositiveId(id);
-
-        return new User(); // stub заглущка
-
+        return transactions.execute(() -> {
+            User user = sessionFactory.getCurrentSession().find(User.class, id);
+            if (user == null) {
+                throw new IllegalArgumentException("No such user: id=%d".formatted(id));
+            }
+            return user;
+        });
     }
 
     /**
      * @return пользователи в порядке id
      */
     public List<User> findAll() {
-            return new ArrayList<>(); // stub заглушка
+        return transactions.execute(() -> sessionFactory.getCurrentSession()
+                .createQuery("select distinct u from User u order by u.id", User.class)
+                .getResultList());
 
     }
 
