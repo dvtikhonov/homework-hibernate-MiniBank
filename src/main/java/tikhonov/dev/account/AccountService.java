@@ -204,12 +204,11 @@ public class AccountService {
     }
 
     private int amountAfterCommission(int amount) {
-        double received = amount * (1.0d - accountProperties.getTransferCommission());
-        long rounded = Math.round(received);
-        if (rounded < 0 || rounded > amount) {
+        long commission = Math.round(amount * accountProperties.getTransferCommission());
+        if (commission < 0 || commission > amount) {
             throw new IllegalArgumentException("calculated transfer amount is out of range");
         }
-        return (int) rounded;
+        return amount - (int) commission;
     }
 
     private static int add(int balance, int amount, long accountId) {
